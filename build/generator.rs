@@ -92,6 +92,10 @@ pub fn gen_wrapper(
 	if !child_status.success() {
 		return Err("Failed to build the bindings generator".into());
 	}
+	let bin_generator_path = match HOST_TRIPLE.as_ref() {
+		Some(host_triple) => OUT_DIR.join(format!("{}/release/binding-generator", host_triple)),
+		None => OUT_DIR.join("release/binding-generator"),
+	};
 
 	let additional_include_dirs = Arc::new(
 		additional_include_dirs
@@ -113,11 +117,9 @@ pub fn gen_wrapper(
 		let join_handle = thread::spawn({
 			let additional_include_dirs = Arc::clone(&additional_include_dirs);
 			let opencv_header_dir = Arc::clone(&opencv_header_dir);
+			let bin_generator_path = bin_generator_path.clone();
 			move || {
-				let mut bin_generator = match HOST_TRIPLE.as_ref() {
-					Some(host_triple) => Command::new(OUT_DIR.join(format!("{}/release/binding-generator", host_triple))),
-					None => Command::new(OUT_DIR.join("release/binding-generator")),
-				};
+				let mut bin_generator = Command::new(bin_generator_path);
 				bin_generator
 					.arg(&*opencv_header_dir)
 					.arg(&*SRC_CPP_DIR)
