@@ -3,8 +3,8 @@ use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
-use std::{env, io, iter};
+use std::process::{Command, Stdio};
+use std::{env, iter};
 
 use once_cell::sync::{Lazy, OnceCell};
 use semver::{Version, VersionReq};
@@ -251,7 +251,7 @@ fn build_job_server() -> Option<jobserver::Client> {
 }
 
 // todo: replace by https://github.com/rust-lang/cargo/issues/9096 when stable
-fn build_clang_generator() -> io::Result<Child> {
+fn build_clang_generator() -> Result<PathBuf> {
 	let cargo_bin = PathBuf::from(env::var_os("CARGO").unwrap_or_else(|| "cargo".into()));
 	let mut cargo = Command::new(cargo_bin);
 	// generator script is quite slow in debug mode, so we force it to be built in release mode
@@ -271,7 +271,29 @@ fn build_clang_generator() -> io::Result<Child> {
 	println!("=== Running: {:?}", &cargo);
 	cargo.stdout(Stdio::piped());
 	cargo.stderr(Stdio::piped());
-	cargo.spawn()
+	let mut child = cargo.spawn()?;
+
+	eprintln!("=== Building binding-generator binary:");
+	if let Some(child_stderr) = child.stderr.take() {
+		for line in BufReader::new(child_stderr).lines().flatten() {
+			eprintln!("=== {}", line);
+		}
+	}
+	if let Some(child_stdout) = child.stdout.take() {
+		for line in BufReader::new(child_stdout).lines().flatten() {
+			eprintln!("=== {}", line);
+		}
+	}
+	let child_status = child.wait()?;
+	if !child_status.success() {
+		return Err("Failed to build the bindings generator".into());
+	}
+
+	let binary_path = match HOST_TRIPLE.as_ref() {
+		Some(host_triple) => OUT_DIR.join(format!("{}/release/binding-generator", host_triple)),
+		None => OUT_DIR.join("release/binding-generator"),
+	};
+	Ok(binary_path)
 }
 
 fn setup_rerun() -> Result<()> {
@@ -328,7 +350,7 @@ fn main() -> Result<()> {
 	}
 
 	let job_server = build_job_server().ok_or("Can't create job server")?;
-	let generator_build = build_clang_generator()?;
+	let bin_generator_path = build_clang_generator()?;
 
 	eprintln!("=== Crate version: {:?}", env::var_os("CARGO_PKG_VERSION"));
 	eprintln!("=== Environment configuration:");
@@ -403,7 +425,7 @@ fn main() -> Result<()> {
 
 	setup_rerun()?;
 
-	generator::gen_wrapper(opencv_header_dir, &opencv, job_server, generator_build)?;
+	generator::gen_wrapper(opencv_header_dir, &opencv, job_server, bin_generator_path)?;
 	build_wrapper(&opencv);
 	// -l linker args should be emitted after -l static
 	opencv.emit_cargo_metadata();

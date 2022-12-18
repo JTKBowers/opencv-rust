@@ -2,12 +2,12 @@ use std::ffi::OsStr;
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command};
+use std::process::Command;
 use std::sync::Arc;
 use std::time::Instant;
 use std::{fs, io, thread};
 
-use super::{files_with_extension, Library, Result, HOST_TRIPLE, MODULES, OUT_DIR, SRC_CPP_DIR, SRC_DIR};
+use super::{files_with_extension, Library, Result, MODULES, OUT_DIR, SRC_CPP_DIR, SRC_DIR};
 
 fn is_type_file(path: &Path, module: &str) -> bool {
 	path.file_stem().and_then(OsStr::to_str).map_or(false, |stem| {
@@ -48,7 +48,7 @@ pub fn gen_wrapper(
 	opencv_header_dir: &Path,
 	opencv: &Library,
 	job_server: jobserver::Client,
-	mut generator_build: Child,
+	bin_generator_path: PathBuf,
 ) -> Result<()> {
 	let target_hub_dir = SRC_DIR.join("opencv");
 	let target_module_dir = target_hub_dir.join("hub");
@@ -76,26 +76,6 @@ pub fn gen_wrapper(
 	eprintln!("=== Clang: {}", clang::get_version());
 	let gen = binding_generator::Generator::new(opencv_header_dir, &additional_include_dirs, &*SRC_CPP_DIR, clang);
 	eprintln!("=== Clang command line args: {:#?}", gen.build_clang_command_line_args());
-
-	eprintln!("=== Building binding-generator binary:");
-	if let Some(child_stderr) = generator_build.stderr.take() {
-		for line in BufReader::new(child_stderr).lines().flatten() {
-			eprintln!("=== {}", line);
-		}
-	}
-	if let Some(child_stdout) = generator_build.stdout.take() {
-		for line in BufReader::new(child_stdout).lines().flatten() {
-			eprintln!("=== {}", line);
-		}
-	}
-	let child_status = generator_build.wait()?;
-	if !child_status.success() {
-		return Err("Failed to build the bindings generator".into());
-	}
-	let bin_generator_path = match HOST_TRIPLE.as_ref() {
-		Some(host_triple) => OUT_DIR.join(format!("{}/release/binding-generator", host_triple)),
-		None => OUT_DIR.join("release/binding-generator"),
-	};
 
 	let additional_include_dirs = Arc::new(
 		additional_include_dirs
