@@ -36,7 +36,7 @@ static OPENCV_BRANCH_34: Lazy<VersionReq> =
 static OPENCV_BRANCH_4: Lazy<VersionReq> =
 	Lazy::new(|| VersionReq::parse("~4").expect("Can't parse OpenCV 4 version requirement"));
 
-static ENV_VARS: [&str; 14] = [
+static ENV_VARS: [&str; 15] = [
 	"OPENCV_PACKAGE_NAME",
 	"OPENCV_PKGCONFIG_NAME",
 	"OPENCV_CMAKE_NAME",
@@ -51,6 +51,7 @@ static ENV_VARS: [&str; 14] = [
 	"PKG_CONFIG_PATH",
 	"VCPKG_ROOT",
 	"VCPKGRS_DYNAMIC",
+	"GENERATOR_BIN_PATH",
 ];
 
 fn files_with_extension<'e>(dir: &Path, extension: impl AsRef<OsStr> + 'e) -> Result<impl Iterator<Item = PathBuf> + 'e> {
@@ -350,7 +351,6 @@ fn main() -> Result<()> {
 	}
 
 	let job_server = build_job_server().ok_or("Can't create job server")?;
-	let bin_generator_path = build_clang_generator()?;
 
 	eprintln!("=== Crate version: {:?}", env::var_os("CARGO_PKG_VERSION"));
 	eprintln!("=== Environment configuration:");
@@ -425,6 +425,10 @@ fn main() -> Result<()> {
 
 	setup_rerun()?;
 
+	let bin_generator_path = match env::var("GENERATOR_BIN_PATH") {
+		Ok(path) => path.into(),
+		Err(_) => build_clang_generator()?,
+	};
 	generator::gen_wrapper(opencv_header_dir, &opencv, job_server, bin_generator_path)?;
 	build_wrapper(&opencv);
 	// -l linker args should be emitted after -l static
